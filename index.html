@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MovieTracker</title>
+    <meta name="description" content="Watchlist, viewing diary, ratings, stats and shared lists for films and television." />
+    <meta name="theme-color" content="#0d0f16" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MovieTracker" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <div class="boot">
+        <span class="brand-mark" aria-hidden="true">🎞️</span>
+        <p>Loading MovieTracker…</p>
+      </div>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <noscript>MovieTracker needs JavaScript: the whole app is one page talking to an API.</noscript>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>
