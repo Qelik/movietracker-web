@@ -3,6 +3,34 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    <!--
+      Content Security Policy as a meta tag, because GitHub Pages serves static
+      files and cannot set response headers. This is the main thing standing
+      between an injected script and the session tokens in localStorage.
+
+      default-src 'none' means every fetch type has to be named below, so a new
+      kind of request fails loudly rather than silently being allowed. There is
+      no inline script or style anywhere in the app, so neither needs
+      'unsafe-inline'. The localhost entry in connect-src is what lets a locally
+      served copy talk to a local API.
+
+      frame-ancestors is deliberately absent: it is ignored in a meta tag, so
+      framing has to be refused by a header the host does not let us set.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               script-src 'self';
+               style-src 'self';
+               img-src 'self' https://image.tmdb.org data:;
+               connect-src 'self' https://movietracker-api-production.up.railway.app http://localhost:* http://127.0.0.1:*;
+               manifest-src 'self';
+               worker-src 'self';
+               base-uri 'none';
+               form-action 'none'"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>MovieTracker</title>
     <meta name="description" content="Watchlist, viewing diary, ratings, stats and shared lists for films and television." />
     <meta name="theme-color" content="#0d0f16" />

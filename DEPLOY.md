@@ -63,10 +63,17 @@ lost on the next deploy.
 
 ## CORS
 
-The API sends `Access-Control-Allow-Origin` for any origin (`origin: true` in
-`server/src/app.ts`). That is safe here because authentication is a `Bearer`
-header rather than an ambient cookie: a hostile page has no credential to
-replay. Nothing needs configuring when the site moves to a new domain.
+The API answers with `Access-Control-Allow-Origin` only for origins on an
+allowlist, set by `WEB_ORIGINS` in the server environment (comma separated).
+The default covers `https://qelik.github.io` and a local dev server on port
+8124. Requests carrying no `Origin` header at all — the iOS app, curl — are
+unaffected.
+
+**Moving the site to a new domain means adding that origin to `WEB_ORIGINS` on
+the Railway service**, or the browser will refuse every API call. The previous
+`origin: true` needed no configuration but reflected whatever origin asked,
+which meant any page on the internet could read authenticated responses if it
+ever got hold of a token.
 
 ## If the Pages build sticks
 

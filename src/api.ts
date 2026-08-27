@@ -32,11 +32,29 @@ import type {
 const STORED_BASE = 'movietracker.apiBase'
 const DEFAULT_BASE = 'https://movietracker-api-production.up.railway.app'
 
+/** Hostnames where pointing the app at another API is a development convenience. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', ''])
+
 export function apiBase(): string {
+  // Ignore any stored override on the deployed origin, not merely refuse to
+  // write one — a value planted before this guard existed must not keep working.
+  if (!LOCAL_HOSTS.has(location.hostname)) return DEFAULT_BASE
   return localStorage.getItem(STORED_BASE) ?? DEFAULT_BASE
 }
 
+/**
+ * Overridable from the console, but only while the page itself is served
+ * locally.
+ *
+ * On the deployed origin this is a refusal, because a stored base URL survives
+ * reloads: one injected script could repoint the app at an attacker's host and
+ * every later request would carry the bearer token there. Development does not
+ * need that to be possible in production to work.
+ */
 export function setApiBase(base: string | null): void {
+  if (!LOCAL_HOSTS.has(location.hostname)) {
+    throw new Error('The API base URL can only be changed when running locally')
+  }
   if (base) localStorage.setItem(STORED_BASE, base.replace(/\/+$/, ''))
   else localStorage.removeItem(STORED_BASE)
 }

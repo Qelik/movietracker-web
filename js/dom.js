@@ -6,10 +6,11 @@ export function el(tag, attributes = {}, children = []) {
             continue;
         if (name === 'class')
             node.className = String(value);
+        // No `html` escape hatch on purpose. Nothing used it, and an innerHTML sink
+        // sitting in the one helper every screen builds through is how a TMDB
+        // synopsis or a shared list name ends up executing. Text only.
         else if (name === 'text')
             node.textContent = String(value);
-        else if (name === 'html')
-            node.innerHTML = String(value);
         else if (value === true)
             node.setAttribute(name, '');
         else

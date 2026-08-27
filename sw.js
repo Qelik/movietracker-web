@@ -10,7 +10,7 @@
 // `self` is already declared by lib.webworker as the generic worker scope, so
 // it is narrowed here rather than redeclared.
 const worker = self;
-const CACHE = 'movietracker-v1';
+const CACHE = 'movietracker-v2';
 const SHELL = [
     './',
     './index.html',
