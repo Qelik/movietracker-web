@@ -11,6 +11,17 @@ export function el(tag, attributes = {}, children = []) {
         // synopsis or a shared list name ends up executing. Text only.
         else if (name === 'text')
             node.textContent = String(value);
+        // Styles go through the CSSOM, never setAttribute.
+        //
+        // The app ships `style-src 'self'` with no 'unsafe-inline', which drops a
+        // style *attribute* on the floor — silently, with the element rendering as
+        // though the rule had never been written. That is what made every bar on
+        // the stats screen full width and left the title sheet with no backdrop:
+        // the declaration was correct and simply never applied. The CSSOM is not
+        // policed by style-src, so this is the same declaration by a route the
+        // policy permits, and it keeps the policy honest rather than widening it.
+        else if (name === 'style')
+            node.style.cssText = String(value);
         else if (value === true)
             node.setAttribute(name, '');
         else

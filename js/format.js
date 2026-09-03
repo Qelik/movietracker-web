@@ -5,6 +5,30 @@ export function posterUrl(path, size = 'w342') {
 export function backdropUrl(path) {
     return path ? `${POSTER_BASE}/w780${path}` : null;
 }
+/**
+ * Provider logos, which come from the same image host but in their own sizes —
+ * w92 is the smallest square TMDB publishes and the only one a chip needs.
+ */
+export function logoUrl(path) {
+    return path ? `${POSTER_BASE}/w92${path}` : null;
+}
+/**
+ * A country code as a reader's own language names it: "GB" becomes "United
+ * Kingdom" in English, "Royaume-Uni" in French.
+ *
+ * Falls back to the bare code, which is not a failure state — every region the
+ * server can store is a valid ISO code, and an older browser without
+ * DisplayNames still shows something true.
+ */
+export function regionName(region) {
+    try {
+        const names = new Intl.DisplayNames(undefined, { type: 'region' });
+        return names.of(region.toUpperCase()) ?? region.toUpperCase();
+    }
+    catch {
+        return region.toUpperCase();
+    }
+}
 /** Today in the browser's timezone — not UTC, which is yesterday for half the day. */
 export function today() {
     const now = new Date();

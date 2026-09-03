@@ -11,7 +11,7 @@
 // it is narrowed here rather than redeclared.
 const worker = self as unknown as ServiceWorkerGlobalScope
 
-const CACHE = 'movietracker-v2'
+const CACHE = 'movietracker-v5'
 
 const SHELL = [
   './',

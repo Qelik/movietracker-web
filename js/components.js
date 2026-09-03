@@ -81,14 +81,66 @@ export function select(options, selected) {
     }
     return node;
 }
-/** A horizontal bar chart — the same shape serves genres, decades and scores. */
-export function barList(rows, formatValue = (value) => String(value)) {
-    const peak = Math.max(1, ...rows.map((row) => row.value));
-    return el('div', { class: 'bars' }, rows.map((row) => el('div', { class: 'bar-row' }, [
-        el('span', { class: 'bar-label', text: row.label }),
-        el('span', { class: 'bar-track' }, [
-            el('span', { class: 'bar-fill', style: `width:${Math.max(2, (row.value / peak) * 100)}%` }),
+/**
+ * A single progress bar: a track, and the numbers beside it.
+ *
+ * Beside, not inside. The label used to sit centred over the bar, so at a third
+ * full the text straddled the edge of the fill and changed contrast halfway
+ * through itself — "13 of 29" with the 13 on one background and the rest on
+ * another. This is the same track the bar chart above uses, for the same
+ * reason: there is no need for two kinds of bar in one app.
+ *
+ * `done` is 0-1 and is clamped, because a caller that has miscounted should
+ * produce a full bar rather than one overflowing its own track.
+ */
+export function progressBar(done, label, description) {
+    const share = Math.min(Math.max(done, 0), 1);
+    return el('div', { class: 'progress-row' }, [
+        el('span', {
+            class: 'bar-track',
+            role: 'progressbar',
+            'aria-valuemin': '0',
+            'aria-valuemax': '100',
+            'aria-valuenow': String(Math.round(share * 100)),
+            // Screen readers get the sentence; the visible label is two numbers
+            // and a preposition, which on its own says nothing about what of.
+            'aria-label': description,
+        }, [
+            // A floor of 2% only once there is something to show. Genuine zero
+            // stays empty — a sliver of fill on a show nobody has started reads as
+            // progress that has not happened.
+            el('span', {
+                class: 'bar-fill',
+                style: `width:${share === 0 ? 0 : Math.max(2, share * 100)}%`,
+            }),
         ]),
-        el('span', { class: 'bar-value', text: row.caption ?? formatValue(row.value) }),
-    ])));
+        el('span', { class: 'progress-count', text: label }),
+    ]);
+}
+/** A horizontal bar chart — the same shape serves genres, decades and scores. */
+export function barList(rows, options = {}) {
+    const format = options.format ?? ((value) => String(value));
+    const whole = options.outOf ?? Math.max(1, ...rows.map((row) => row.value));
+    return el('div', { class: 'bars' }, rows.map((row) => {
+        const share = whole === 0 ? 0 : Math.min(Math.max(row.value / whole, 0), 1);
+        return el('div', { class: 'bar-row' }, [
+            el('span', { class: 'bar-label', text: row.label }),
+            el('span', {
+                class: 'bar-track',
+                role: 'img',
+                // The visible number is beside the bar; this says what it is of,
+                // which the bar alone cannot.
+                'aria-label': `${row.label}: ${row.caption ?? format(row.value)}`,
+            }, [
+                // A floor of 2% so a small-but-real value is still visible, but
+                // only once there is something to show: a sliver on a genre with
+                // nothing in it would be reporting viewing that did not happen.
+                el('span', {
+                    class: 'bar-fill',
+                    style: `width:${share === 0 ? 0 : Math.max(2, share * 100)}%`,
+                }),
+            ]),
+            el('span', { class: 'bar-value', text: row.caption ?? format(row.value) }),
+        ]);
+    }));
 }

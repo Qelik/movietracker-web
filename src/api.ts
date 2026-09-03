@@ -8,16 +8,29 @@
  */
 import type {
   AppNotification,
+  BrowseFilters,
+  BrowsePage,
+  CalendarPage,
+  Availability,
+  CollectionPage,
+  Decision,
+  FeedItem,
+  FollowCounts,
   DiaryEntry,
   EpisodeSummary,
   ForYou,
   Genre,
+  ImportJob,
   ListItem,
   ListMember,
+  ListNight,
   ListSummary,
   MediaType,
   MovieDetail,
   MovieSummary,
+  PersonPage,
+  ProfileView,
+  UpNextShow,
   PublicUser,
   Rating,
   SearchPage,
@@ -257,10 +270,42 @@ export async function me(): Promise<PublicUser> {
 export async function updateMe(patch: {
   displayName?: string
   handle?: string
+  region?: string
+  activityVisibility?: 'private' | 'followers'
 }): Promise<PublicUser> {
   const { user } = await request<{ user: PublicUser }>('/v1/me', { method: 'PATCH', body: patch })
   if (session) writeSession({ ...session, user })
   return user
+}
+
+// MARK: People you follow
+
+/** What the accounts you follow have been watching. */
+export async function feed(): Promise<{ items: FeedItem[]; sharingCount: number }> {
+  return await request<{ items: FeedItem[]; sharingCount: number }>('/v1/feed')
+}
+
+/** Somebody else's profile, as you are allowed to see it. */
+export async function profile(handle: string): Promise<ProfileView> {
+  return await request<ProfileView>(`/v1/users/${encodeURIComponent(handle)}`)
+}
+
+export async function follow(handle: string): Promise<{ counts: FollowCounts }> {
+  return await request<{ counts: FollowCounts }>(
+    `/v1/follows/${encodeURIComponent(handle)}`,
+    { method: 'POST' },
+  )
+}
+
+export async function unfollow(handle: string): Promise<{ counts: FollowCounts }> {
+  return await request<{ counts: FollowCounts }>(
+    `/v1/follows/${encodeURIComponent(handle)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function follows(): Promise<{ following: PublicUser[]; followers: PublicUser[] }> {
+  return await request<{ following: PublicUser[]; followers: PublicUser[] }>('/v1/follows')
 }
 
 // MARK: Titles
@@ -277,6 +322,19 @@ export async function titleDetail(mediaType: MediaType, tmdbId: number): Promise
     `/v1/movies/${tmdbId}?mediaType=${mediaType}`,
   )
   return movie
+}
+
+/**
+ * A person, their filmography, and what you have seen of it — one call, because
+ * the overlay is the only reason the screen is worth opening.
+ */
+export async function person(tmdbId: number): Promise<PersonPage> {
+  return await request<PersonPage>(`/v1/people/${tmdbId}`)
+}
+
+/** A series, its films in release order, and how many of them you have seen. */
+export async function collection(tmdbId: number): Promise<CollectionPage> {
+  return await request<CollectionPage>(`/v1/collections/${tmdbId}`)
 }
 
 export async function seasonEpisodes(tmdbId: number, seasonNumber: number): Promise<EpisodeSummary[]> {
@@ -320,6 +378,30 @@ export async function byGenre(id: number, media: DiscoverMedia, page = 1): Promi
   return results
 }
 
+/**
+ * A filtered browse. Every empty filter is left out of the query rather than
+ * sent blank — TMDB reads an empty parameter as a real constraint on some
+ * endpoints and answers with nothing.
+ */
+export async function browse(filters: BrowseFilters): Promise<BrowsePage> {
+  const query = new URLSearchParams({
+    media: filters.media,
+    sort: filters.sort,
+    page: String(filters.page),
+  })
+
+  if (filters.genres.length) query.set('genres', filters.genres.join(','))
+  if (filters.providers.length) query.set('providers', filters.providers.join(','))
+  if (filters.fromYear !== null) query.set('fromYear', String(filters.fromYear))
+  if (filters.toYear !== null) query.set('toYear', String(filters.toYear))
+  if (filters.minRuntime !== null) query.set('minRuntime', String(filters.minRuntime))
+  if (filters.maxRuntime !== null) query.set('maxRuntime', String(filters.maxRuntime))
+  if (filters.minRating !== null) query.set('minRating', String(filters.minRating))
+  if (filters.hideWatched) query.set('hideWatched', 'true')
+
+  return await request<BrowsePage>(`/v1/discover/browse?${query.toString()}`)
+}
+
 export function forYou(media: DiscoverMedia): Promise<ForYou> {
   return request<ForYou>(`/v1/discover/for-you?media=${media}`)
 }
@@ -360,6 +442,23 @@ export function removeFromWatchlist(mediaType: MediaType, tmdbId: number): Promi
 }
 
 // MARK: Diary
+
+/**
+ * The episode to play for every show you have started. Costs the server no
+ * upstream call, so it is cheap enough to ask for on every app open.
+ */
+export async function upNext(): Promise<UpNextShow[]> {
+  const { shows } = await request<{ shows: UpNextShow[] }>('/v1/up-next')
+  return shows
+}
+
+/**
+ * What is coming: watchlisted films yet to be released, and unaired episodes of
+ * shows you have started. Reads only the server's own cache — nothing upstream.
+ */
+export async function calendar(days = 60): Promise<CalendarPage> {
+  return await request<CalendarPage>(`/v1/calendar?days=${days}`)
+}
 
 export async function diary(range: { from?: string; to?: string } = {}): Promise<DiaryEntry[]> {
   const params = new URLSearchParams()
@@ -527,6 +626,56 @@ export function clearVote(listId: string, itemId: string): Promise<void> {
   return request<void>(`/v1/lists/${listId}/items/${itemId}/vote`, { method: 'DELETE' })
 }
 
+/**
+ * Picks one thing off a shared list.
+ *
+ * Nothing is recorded, so rolling again is free — which is, in practice, how
+ * the decision actually gets made.
+ */
+export async function decideForList(listId: string): Promise<Decision> {
+  const { decision } = await request<{ decision: Decision }>(`/v1/lists/${listId}/decide`, {
+    method: 'POST',
+  })
+  return decision
+}
+
+export async function nights(listId: string): Promise<ListNight[]> {
+  const { nights } = await request<{ nights: ListNight[] }>(`/v1/lists/${listId}/nights`)
+  return nights
+}
+
+export async function proposeNight(
+  listId: string,
+  onDate: string,
+  note?: string | null,
+): Promise<ListNight[]> {
+  const { nights } = await request<{ nights: ListNight[] }>(`/v1/lists/${listId}/nights`, {
+    method: 'POST',
+    body: { onDate, note: note ?? null },
+  })
+  return nights
+}
+
+export async function replyToNight(
+  listId: string,
+  nightId: string,
+  reply: Availability,
+): Promise<ListNight[]> {
+  const { nights } = await request<{ nights: ListNight[] }>(
+    `/v1/lists/${listId}/nights/${nightId}/reply`,
+    { method: 'POST', body: { reply } },
+  )
+  return nights
+}
+
+export async function cancelNight(listId: string, nightId: string): Promise<ListNight[]> {
+  const { nights } = await request<{ nights: ListNight[] }>(
+    `/v1/lists/${listId}/nights/${nightId}`,
+    { method: 'DELETE' },
+  )
+  return nights
+}
+
 export async function listMembers(id: string): Promise<ListMember[]> {
   const { members } = await request<{ members: ListMember[] }>(`/v1/lists/${id}/members`)
   return members
@@ -572,6 +721,25 @@ export function markNotificationsRead(ids?: string[]): Promise<{ marked: number;
 }
 
 // MARK: Export
+
+/**
+ * Uploads a CSV and starts an import.
+ *
+ * Answers with a job, not a result: matching hundreds of titles against TMDB
+ * takes minutes, and the run outlives the request that started it.
+ */
+export async function startImport(csv: string, filename: string): Promise<ImportJob> {
+  const { job } = await request<{ job: ImportJob }>('/v1/import', {
+    method: 'POST',
+    body: { csv, filename },
+  })
+  return job
+}
+
+export async function importJob(id: string): Promise<ImportJob> {
+  const { job } = await request<{ job: ImportJob }>(`/v1/import/${id}`)
+  return job
+}
 
 export function exportLibrary(): Promise<unknown> {
   return request('/v1/export')

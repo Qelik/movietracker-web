@@ -116,6 +116,7 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
 .primary:active { transform: translateY(1px); }
 .primary.wide { width: 100%; padding: 13px; font-size: 15px; }
 .primary.danger { background: var(--danger); color: #fff; }
+.primary.small { padding: 6px 10px; font-size: 12.5px; border-radius: 8px; }
 .ghost {
   background: var(--surface); color: var(--ink);
   font-weight: 600; font-size: 13.5px;
@@ -123,6 +124,8 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
   transition: border-color .15s ease, background .15s ease;
 }
 .ghost:hover { border-color: var(--accent); }
+/* An anchor wearing .ghost — a link is not inline-block and has its own colour. */
+a.ghost { display: inline-block; text-decoration: none; color: var(--ink); }
 .ghost.small { padding: 6px 10px; font-size: 12.5px; }
 .ghost.danger, .ghost.small.danger { color: var(--danger); }
 .ghost.active { border-color: var(--accent); color: var(--accent); }
@@ -162,6 +165,131 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   border-radius: 999px; padding: 3px 10px; font-size: 12px; margin: 2px 4px 2px 0;
 }
 .pill.small { font-size: 11px; padding: 2px 8px; text-transform: capitalize; }
+
+/* Provider chips carry a logo, so they line their contents up rather than
+   relying on inline-block's baseline. */
+.provider-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 5px; font-size: 12.5px; color: var(--ink);
+  border: 1px solid var(--line); text-decoration: none;
+}
+a.provider-pill:hover { border-color: var(--accent); }
+.provider-logo { width: 20px; height: 20px; border-radius: 5px; display: block; }
+.provider-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.provider-label {
+  flex: 0 0 auto; min-width: 52px;
+  font-size: 12px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.inline-field { max-width: 320px; }
+
+/* A name that opens the person sheet. A button, so it needs the pill's look
+   without the button reset's chrome. */
+.person-link {
+  border: 1px solid var(--line); cursor: pointer; font: inherit;
+  font-size: 12px; color: var(--ink-soft); text-align: left;
+}
+.person-link:hover { color: var(--ink); border-color: var(--accent); }
+p .person-link { margin: 0; }
+
+/* ---------- Person sheet ---------- */
+.person-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 8px; }
+.person-portrait {
+  width: 96px; aspect-ratio: 2 / 3; flex: 0 0 auto;
+  border-radius: 10px; object-fit: cover; background: var(--surface-2);
+}
+.person-portrait.placeholder { display: grid; place-items: center; font-size: 30px; }
+.person-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.person-text h2 { margin: 0; }
+.seen-line { font-size: 13.5px; font-weight: 600; color: var(--accent); margin: 0; }
+/* Biographies run to several hundred words; the sheet is not a reader. */
+.overview.clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+
+.credit-list { display: flex; flex-direction: column; gap: 8px; }
+.credit-row {
+  display: flex; gap: 12px; align-items: center; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px; cursor: pointer; font: inherit; color: inherit;
+}
+.credit-row:hover { border-color: var(--accent); }
+.credit-poster {
+  width: 46px; aspect-ratio: 2 / 3; flex: 0 0 auto;
+  border-radius: 6px; object-fit: cover; background: var(--surface-2);
+}
+.credit-poster.placeholder { display: grid; place-items: center; font-size: 18px; }
+.credit-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.credit-title { font-weight: 600; font-size: 14px; }
+.credit-marks { display: flex; gap: 4px; flex-wrap: wrap; }
+.pill.good { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+
+/* ---------- Up next ---------- */
+.up-next { margin-bottom: 6px; }
+.up-next-rail { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.up-next-rail::-webkit-scrollbar { display: none; }
+.up-next-card {
+  flex: 0 0 auto; width: 260px; display: flex; flex-wrap: wrap; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 10px;
+}
+.up-next-poster {
+  width: 54px; aspect-ratio: 2 / 3; flex: 0 0 auto;
+  border-radius: 6px; object-fit: cover; background: var(--surface-2);
+}
+.up-next-poster.placeholder { display: grid; place-items: center; font-size: 20px; }
+.up-next-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.up-next-title {
+  font-weight: 600; font-size: 14px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.up-next-card .row-actions { width: 100%; }
+
+/* Track and fill come from .bar-track / .bar-fill above — one kind of bar. */
+.progress-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.progress-row .bar-track { flex: 1; min-width: 0; }
+.progress-count {
+  flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Coming up ---------- */
+.calendar-day { margin-bottom: 18px; }
+.calendar-date {
+  margin: 0 0 8px; font-size: 13px; font-weight: 700;
+  color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em;
+}
+.calendar-rows { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---------- Import ---------- */
+.unmatched summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); padding: 6px 0; }
+.unmatched ul { margin: 4px 0 0; padding-left: 20px; font-size: 13px; color: var(--ink-soft); }
+.unmatched li { margin: 2px 0; }
+input[type="file"].input { padding: 8px; font-size: 13px; }
+.collection-line { margin: -8px 0 12px; }
+
+/* ---------- Browse filters ---------- */
+.filter-panel {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 10px 12px; margin-bottom: 10px;
+}
+.filter-panel > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; padding: 2px 0; }
+.filter-grid {
+  display: grid; gap: 10px; margin: 10px 0;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.checkline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin: 6px 0; }
+.pager { justify-content: center; margin: 18px 0 4px; }
+.review-line { font-style: italic; }
+.link-button.small { font-size: 12px; font-weight: 700; }
+
+/* ---------- Deciding ---------- */
+.credit-row.decision { border-color: var(--accent); }
+.night-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  flex-wrap: wrap; padding: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+}
+.night-row .credit-title { display: block; }
+.night-row .chip-row { padding-bottom: 0; }
 
 /* ---------- Layout ---------- */
 main { padding: 16px 20px calc(96px + env(safe-area-inset-bottom, 0px)); max-width: 1200px; margin: 0 auto; }

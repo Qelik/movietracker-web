@@ -7,9 +7,11 @@
  */
 import * as api from './api.js';
 import { add, button, busy, clear, confirmModal, el, modal, spinner, toast } from './dom.js';
-import { field, input, posterCard, select, textarea } from './components.js';
-import { backdropUrl, formatDay, formatRuntime, mediaLabel, plural, posterUrl, scoreLabel, starsFor, today, } from './format.js';
+import { field, input, posterCard, sectionHead, select, textarea } from './components.js';
+import { backdropUrl, formatDay, formatRuntime, logoUrl, mediaLabel, plural, posterUrl, regionName, scoreLabel, starsFor, today, } from './format.js';
 import * as library from './library.js';
+import { openCollection } from './collection.js';
+import { openPerson } from './person.js';
 /** Opens the sheet. Safe to call from inside another sheet — dialogs stack. */
 export function openTitle(ref) {
     const body = el('div', { class: 'title-sheet' }, [spinner('Loading title')]);
@@ -43,7 +45,7 @@ async function render(body, ref, close) {
     };
     const paint = () => {
         clear(body);
-        add(body, heroFor(detail), actionsFor(detail, state, redraw, close), ratingBlock(detail, state, redraw), viewingsBlock(detail, state, redraw), detail.mediaType === 'tv' && detail.seasons.length > 0 ? seasonsBlock(detail, redraw) : null, tagsBlock(detail, allTags, titleTags, redraw), castBlock(detail), 
+        add(body, heroFor(detail), actionsFor(detail, state, redraw, close), collectionLine(detail), providersBlock(detail), ratingBlock(detail, state, redraw), viewingsBlock(detail, state, redraw), detail.mediaType === 'tv' && detail.seasons.length > 0 ? seasonsBlock(detail, redraw) : null, tagsBlock(detail, allTags, titleTags, redraw), castBlock(detail), 
         // Films only: /movies/:id/similar is a film endpoint, and a show's id
         // passed to it answers about an unrelated film with the same number.
         detail.mediaType === 'movie' ? similarBlock(detail) : null);
@@ -82,14 +84,7 @@ function heroFor(detail) {
                 detail.genres.length
                     ? el('div', { class: 'tag-strip' }, detail.genres.map((genre) => el('span', { class: 'pill', text: genre.name })))
                     : null,
-                detail.directors.length
-                    ? el('p', {
-                        class: 'muted',
-                        text: `${detail.mediaType === 'tv' ? 'Created by' : 'Directed by'} ${detail.directors
-                            .map((person) => person.name)
-                            .join(', ')}`,
-                    })
-                    : null,
+                detail.directors.length ? creditedLine(detail) : null,
                 detail.overview ? el('p', { class: 'overview', text: detail.overview }) : null,
             ]),
         ]),
@@ -116,9 +111,21 @@ function actionsFor(detail, state, redraw, closeSheet) {
     }), onWatchlist ? 'ghost active' : 'ghost');
     const logButton = button(detail.mediaType === 'tv' ? 'Log episode' : 'Log viewing', () => openLogSheet(detail, redraw), 'primary');
     const listButton = button('Add to list…', () => openAddToList(detail), 'ghost');
+    // An anchor, not a button: it goes to a real URL, so it should behave like a
+    // link — middle-click, long-press, copy address, all of it.
+    const trailerLink = detail.trailer
+        ? el('a', {
+            class: 'ghost',
+            href: detail.trailer.url,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            'aria-label': `Watch the trailer for ${detail.title} on YouTube`,
+        }, ['▶ Trailer'])
+        : null;
     return el('div', { class: 'sheet-actions' }, [
         logButton,
         watchlistButton,
+        trailerLink,
         listButton,
         button('Close', closeSheet, 'ghost'),
     ]);
@@ -472,16 +479,109 @@ function tagsBlock(detail, allTags, titleTags, redraw) {
         el('div', { class: 'inline-form' }, [name, add]),
     ]);
 }
+/**
+ * "Part of The Godfather Collection", opening the rest of the series.
+ *
+ * A line rather than a block: on most films it is absent, and a section header
+ * for one sentence would leave a hole on every film that is not a sequel.
+ */
+function collectionLine(detail) {
+    const collection = detail.collection;
+    if (!collection)
+        return null;
+    const link = el('button', {
+        class: 'link-button',
+        type: 'button',
+        text: collection.name,
+    });
+    link.addEventListener('click', () => openCollection(collection.tmdbId, collection.name));
+    return el('p', { class: 'muted collection-line' }, ['Part of ', link]);
+}
+/**
+ * Where you can actually watch it.
+ *
+ * Absent entirely when TMDB knows of no deal in the user's region, rather than
+ * rendered as an empty row: "no options in GB" and "we could not load this"
+ * look the same to a reader, and only one of them is worth the space.
+ *
+ * Every provider name links out through TMDB's own availability page. That is
+ * a licensing requirement, not a shortcut — TMDB supplies this data on the
+ * condition that the link goes to them, and they keep the deep links current
+ * in a way this app could not.
+ */
+function providersBlock(detail) {
+    const providers = detail.watchProviders;
+    if (!providers)
+        return null;
+    const groups = [
+        { label: 'Stream', items: providers.subscription },
+        { label: 'Rent', items: providers.rent },
+        { label: 'Buy', items: providers.buy },
+    ].filter((group) => group.items.length > 0);
+    if (groups.length === 0)
+        return null;
+    const rows = groups.map((group) => el('div', { class: 'provider-row' }, [
+        el('span', { class: 'provider-label', text: group.label }),
+        el('div', { class: 'chip-row wrap' }, group.items.map((provider) => providerChip(provider, providers.link))),
+    ]));
+    return el('section', { class: 'sheet-block' }, [
+        sectionHead('Where to watch', `In ${regionName(providers.region)}`),
+        ...rows,
+    ]);
+}
+function providerChip(provider, link) {
+    const logo = logoUrl(provider.logoPath);
+    const inner = [
+        logo ? el('img', { class: 'provider-logo', src: logo, alt: '', loading: 'lazy' }) : null,
+        el('span', { text: provider.name }),
+    ];
+    // No link means TMDB gave us providers but no page for them, which happens.
+    // A dead anchor is worse than plain text, so it stays plain text.
+    if (!link)
+        return el('span', { class: 'pill provider-pill' }, inner);
+    return el('a', {
+        class: 'pill provider-pill',
+        href: link,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        // The chip shows a logo and a name; a screen reader needs the verb.
+        'aria-label': `${provider.name} — see availability on TMDB`,
+    }, inner);
+}
+/**
+ * "Directed by" / "Created by", with each name opening that person's work.
+ *
+ * A separate function only because the names are now buttons: the line used to
+ * be one interpolated string, which is why tapping a director went nowhere.
+ */
+function creditedLine(detail) {
+    const line = el('p', { class: 'muted' }, [
+        `${detail.mediaType === 'tv' ? 'Created by' : 'Directed by'} `,
+    ]);
+    detail.directors.forEach((person, index) => {
+        if (index > 0)
+            line.append(', ');
+        line.append(personLink(person.id, person.name));
+    });
+    return line;
+}
 function castBlock(detail) {
     if (detail.topCast.length === 0)
         return null;
     return el('section', { class: 'sheet-block' }, [
         el('h3', { text: 'Cast' }),
-        el('div', { class: 'chip-row wrap' }, detail.topCast.map((person) => el('span', {
-            class: 'pill',
-            text: person.character ? `${person.name} — ${person.character}` : person.name,
-        }))),
+        el('div', { class: 'chip-row wrap' }, detail.topCast.map((person) => personLink(person.id, person.character ? `${person.name} — ${person.character}` : person.name, person.name))),
     ]);
+}
+/**
+ * A name that opens the person sheet. A button rather than an anchor: there is
+ * no URL behind it, and a link that goes nowhere lies to the keyboard and to
+ * anything that reads the page aloud.
+ */
+function personLink(tmdbId, label, name = label) {
+    const node = el('button', { class: 'pill person-link', type: 'button', text: label });
+    node.addEventListener('click', () => openPerson(tmdbId, name));
+    return node;
 }
 function similarBlock(detail) {
     const block = el('section', { class: 'sheet-block' }, [

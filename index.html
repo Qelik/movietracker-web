@@ -10,10 +10,14 @@
       between an injected script and the session tokens in localStorage.
 
       default-src 'none' means every fetch type has to be named below, so a new
-      kind of request fails loudly rather than silently being allowed. There is
-      no inline script or style anywhere in the app, so neither needs
-      'unsafe-inline'. The localhost entry in connect-src is what lets a locally
-      served copy talk to a local API.
+      kind of request fails loudly rather than silently being allowed. Nothing
+      needs 'unsafe-inline': there is no inline script, and the few places that
+      set a width or a backdrop do it through the CSSOM in dom.ts, which
+      style-src does not police. Note the failure mode if that ever changes —
+      a blocked style attribute is dropped in silence, and the element renders
+      as though the declaration had never been written, which is how every bar
+      on the stats screen came to be full width. The localhost entry in
+      connect-src is what lets a locally served copy talk to a local API.
 
       frame-ancestors is deliberately absent: it is ignored in a meta tag, so
       framing has to be refused by a header the host does not let us set.

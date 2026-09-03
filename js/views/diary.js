@@ -1,5 +1,10 @@
 /**
- * Diary: what you watched, newest first, in month groups.
+ * Diary: what you watched, newest first, in month groups — and, under "Coming
+ * up", the same screen pointed the other way.
+ *
+ * The calendar lives here rather than in a tab of its own because it is the
+ * same question about the same dates: what have I seen, and what is about to
+ * arrive. Two tabs would have put them on opposite sides of the app.
  *
  * Paged in the client rather than the server — /v1/diary answers with the whole
  * range, and the mirror in the iOS app does the same. A month at a time is the
@@ -13,6 +18,8 @@ import * as library from '../library.js';
 import { on } from '../store.js';
 import { openTitle } from '../title.js';
 const PAGE = 60;
+/** How far ahead "Coming up" looks. Two months covers a season of television. */
+const CALENDAR_DAYS = 60;
 let filter = 'all';
 let shownCount = PAGE;
 export function mount(root) {
@@ -25,15 +32,76 @@ export function mount(root) {
             { value: 'all', label: 'Everything' },
             { value: 'movie', label: 'Films' },
             { value: 'tv', label: 'Episodes' },
+            { value: 'coming', label: 'Coming up' },
         ], filter, (value) => {
             filter = value;
             shownCount = PAGE;
             draw();
         }));
-        void load(body, draw);
+        if (filter === 'coming')
+            void loadCalendar(body);
+        else
+            void load(body, draw);
     };
     draw();
-    return on('library', () => void load(body, draw));
+    return on('library', () => {
+        if (filter === 'coming')
+            void loadCalendar(body);
+        else
+            void load(body, draw);
+    });
+}
+/**
+ * "Coming up": watchlisted films yet to be released and unaired episodes of
+ * shows you have started, grouped by day.
+ *
+ * The grouping is the server's, not repeated here: it already had to decide
+ * what shares a day in order to know what to notify about.
+ */
+async function loadCalendar(body) {
+    clear(body);
+    body.append(spinner('Looking ahead'));
+    let days;
+    try {
+        days = (await api.calendar(CALENDAR_DAYS)).calendar;
+    }
+    catch (error) {
+        clear(body);
+        body.append(el('p', { class: 'error-note', text: message(error) }));
+        return;
+    }
+    clear(body);
+    if (days.length === 0) {
+        body.append(empty('Nothing on the horizon. Watchlist an unreleased film, or start a show that is still running.'));
+        return;
+    }
+    for (const day of days) {
+        body.append(el('section', { class: 'calendar-day' }, [
+            el('h3', { class: 'calendar-date', text: formatDay(day.date) }),
+            el('div', { class: 'calendar-rows' }, day.entries.map(calendarRow)),
+        ]));
+    }
+}
+function calendarRow(entry) {
+    const poster = posterUrl(entry.posterPath, 'w185');
+    const detail = entry.kind === 'episode'
+        ? [`S${entry.seasonNumber}E${entry.episodeNumber}`, entry.episodeName]
+            .filter(Boolean)
+            .join(' · ')
+        : 'Released';
+    const row = el('button', { class: 'credit-row', type: 'button' }, [
+        poster
+            ? el('img', { class: 'credit-poster', src: poster, alt: '', loading: 'lazy' })
+            : el('div', { class: 'credit-poster placeholder', 'aria-hidden': 'true' }, [
+                entry.kind === 'episode' ? '📺' : '🎬',
+            ]),
+        el('div', { class: 'credit-body' }, [
+            el('span', { class: 'credit-title', text: entry.title }),
+            el('span', { class: 'muted small', text: detail }),
+        ]),
+    ]);
+    row.addEventListener('click', () => openTitle({ mediaType: entry.mediaType, tmdbId: entry.tmdbId, title: entry.title }));
+    return row;
 }
 function message(error) {
     return error instanceof Error ? error.message : 'Something went wrong';

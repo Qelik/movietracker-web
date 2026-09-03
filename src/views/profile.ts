@@ -4,15 +4,26 @@
  */
 import * as api from '../api.js'
 import { APP_VERSION } from '../version.js'
-import { barList, chipRow, field, input, posterCard, sectionHead } from '../components.js'
+import {
+  barList,
+  chipRow,
+  field,
+  input,
+  posterCard,
+  progressBar,
+  sectionHead,
+  select,
+} from '../components.js'
 import { busy, button, clear, confirmModal, el, empty, modal, spinner, toast } from '../dom.js'
-import { plural, scoreLabel, starsFor } from '../format.js'
+import { formatDay, plural, regionName, scoreLabel, starsFor } from '../format.js'
 import * as library from '../library.js'
 import { emit, on } from '../store.js'
+import { renderFeed } from '../feed.js'
+import { openProfile } from '../people.js'
 import { openTitle } from '../title.js'
-import type { Stats } from '../types.js'
+import type { AppNotification, ImportJob, PublicUser, Stats } from '../types.js'
 
-type Pane = 'stats' | 'ratings' | 'tags' | 'activity' | 'account'
+type Pane = 'stats' | 'ratings' | 'tags' | 'feed' | 'activity' | 'account'
 
 let pane: Pane = 'stats'
 let statsYear: number | null = null
@@ -30,6 +41,7 @@ export function mount(root: HTMLElement): () => void {
           { value: 'stats' as Pane, label: 'Stats' },
           { value: 'ratings' as Pane, label: 'Ratings' },
           { value: 'tags' as Pane, label: 'Tags' },
+          { value: 'feed' as Pane, label: 'Feed' },
           { value: 'activity' as Pane, label: 'Activity' },
           { value: 'account' as Pane, label: 'Account' },
         ],
@@ -44,6 +56,7 @@ export function mount(root: HTMLElement): () => void {
     if (pane === 'stats') void renderStats(body, draw)
     else if (pane === 'ratings') void renderRatings(body)
     else if (pane === 'tags') void renderTags(body, draw)
+    else if (pane === 'feed') void renderFeedPane(body)
     else if (pane === 'activity') void renderActivity(body, draw)
     else renderAccount(body)
   }
@@ -126,9 +139,13 @@ async function renderStats(body: HTMLElement, redraw: () => void): Promise<void>
       barList(
         stats.genres.slice(0, 10).map((genre) => ({
           label: genre.name,
-          value: genre.viewings,
+          // The share, not the raw count: this chart is drawn against 100, so
+          // a genre on 27% fills just over a quarter of the track instead of
+          // all of it while its own label reads 27%.
+          value: Math.round(genre.share * 100),
           caption: `${Math.round(genre.share * 100)}%`,
         })),
+        { outOf: 100 },
       ),
     )
   }
@@ -178,9 +195,78 @@ async function renderStats(body: HTMLElement, redraw: () => void): Promise<void>
     )
   }
 
+  const streaks = stats.streaks
+  if (streaks.activeDays > 0) {
+    body.append(
+      sectionHead('Habits', streakNote(stats)),
+      el('div', { class: 'stats-strip' }, [
+        stat(String(streaks.longestDays), 'Longest streak'),
+        stat(String(streaks.activeDays), 'Days watching'),
+        stat(
+          streaks.busiestDay ? String(streaks.busiestDay.viewings) : '—',
+          streaks.busiestDay ? `Most on ${formatDay(streaks.busiestDay.date)}` : 'Busiest day',
+        ),
+        stat(
+          String(stats.firstTimeVsRewatch.firstTime),
+          'First time',
+        ),
+        stat(String(stats.firstTimeVsRewatch.rewatches), 'Rewatches'),
+      ]),
+    )
+
+    const span = streakSpan(stats)
+    if (span) {
+      body.append(el('p', { class: 'muted small', text: `Longest run: ${span}.` }))
+    }
+  }
+
+  if (stats.mostRewatched.length > 0) {
+    body.append(
+      sectionHead('Go back to most'),
+      barList(
+        stats.mostRewatched.map((row) => ({ label: row.title, value: row.viewings })),
+        { format: (value) => `${value}×` },
+      ),
+    )
+  }
+
   if (stats.allTime.viewings === 0) {
     body.append(empty('Log something and this page fills in.'))
   }
+}
+
+/**
+ * The line under "Habits": how this year compares with the one before it.
+ *
+ * Absent for all time and for a first year, because there is nothing to
+ * compare against and inventing a baseline of zero would report an infinite
+ * increase.
+ */
+function streakNote(stats: Stats): string | null {
+  const previous = stats.previousYear
+  if (!previous) return null
+
+  if (previous.viewingsChange === null) {
+    return `${previous.year}: ${plural(previous.viewings, 'viewing')}.`
+  }
+
+  const percent = Math.abs(Math.round(previous.viewingsChange * 100))
+  if (percent === 0) return `Level with ${previous.year}.`
+
+  const direction = previous.viewingsChange > 0 ? 'more than' : 'fewer than'
+  return `${percent}% ${direction} ${previous.year} (${plural(previous.viewings, 'viewing')}).`
+}
+
+/**
+ * The longest streak's dates, when it is long enough to be worth naming.
+ *
+ * A two-day run is not a story, and "your longest streak was 1 day" reads as an
+ * accusation rather than a statistic.
+ */
+function streakSpan(stats: Stats): string | null {
+  const { longestDays, longestFrom, longestTo } = stats.streaks
+  if (longestDays < 3 || !longestFrom || !longestTo) return null
+  return `${formatDay(longestFrom)} – ${formatDay(longestTo)}`
 }
 
 function stat(value: string, label: string): HTMLElement {
@@ -341,7 +427,9 @@ async function renderActivity(body: HTMLElement, redraw: () => void): Promise<vo
     body.append(sectionHead('Activity', unread ? `${unread} unread` : 'All caught up', markAll))
 
     if (notifications.length === 0) {
-      body.append(empty('Nothing has happened on your shared lists yet.'))
+      body.append(
+        empty('Nothing yet. Shared-list activity and release dates show up here.'),
+      )
       return
     }
 
@@ -363,30 +451,267 @@ async function renderActivity(body: HTMLElement, redraw: () => void): Promise<vo
   }
 }
 
-function describeNotification(item: {
-  kind: string
-  actor: { displayName: string | null; handle: string }
-  listName: string | null
-  titleName: string | null
-}): string {
-  const who = item.actor.displayName ?? `@${item.actor.handle}`
+/**
+ * One sentence per notification.
+ *
+ * The kind is a bare string, not a union, so a server that learns a new kind
+ * before this client does renders a plain row instead of failing the inbox.
+ *
+ * Release and airing events have no actor: they are facts about the world, not
+ * about a person, so their sentences do not name one.
+ */
+function describeNotification(item: AppNotification): string {
+  const who = item.actor?.displayName ?? (item.actor ? `@${item.actor.handle}` : 'Someone')
   const list = item.listName ?? 'a list'
   const title = item.titleName ?? 'something'
+
   switch (item.kind) {
     case 'list_item_added':
       return `${who} added ${title} to ${list}`
-    case 'list_item_removed':
-      return `${who} removed ${title} from ${list}`
-    case 'list_member_added':
-      return `${who} added you to ${list}`
-    case 'list_item_voted':
+    case 'list_item_vote':
       return `${who} voted on ${title} in ${list}`
+    case 'release_today':
+      return `${title} is out today`
+    case 'episode_airing':
+      return `A new episode of ${title} has aired`
+    case 'new_follower':
+      return `${who} started following you`
     default:
-      return `${who} did something on ${list}`
+      return `Something happened with ${title}`
   }
 }
 
+// MARK: Feed
+
+/**
+ * The feed, plus the one control that makes it possible to be found: a box to
+ * follow somebody by handle.
+ *
+ * Handles are already the public identifier — they are how a list gets shared —
+ * so there is nothing new to learn here.
+ */
+async function renderFeedPane(body: HTMLElement): Promise<void> {
+  clear(body)
+
+  const handle = input('text', { placeholder: 'handle', maxlength: 30 })
+  const go = button(
+    'Follow',
+    () =>
+      void busy(go, async () => {
+        const wanted = handle.value.trim().toLowerCase().replace(/^@/, '')
+        if (!wanted) {
+          toast('Type a handle first', 'error')
+          return
+        }
+        try {
+          await api.follow(wanted)
+          handle.value = ''
+          toast(`Following @${wanted}`)
+          await renderFeedPane(body)
+        } catch (error) {
+          toast(message(error), 'error')
+        }
+      }),
+    'ghost',
+  )
+
+  const list = el('div')
+
+  body.append(
+    el('div', { class: 'form' }, [
+      field('Follow someone', handle, 'Their handle, without the @.'),
+      el('div', { class: 'row-actions' }, [go, button('Who I follow', () => void openFollows(), 'ghost')]),
+    ]),
+    list,
+  )
+
+  await renderFeed(list)
+}
+
+/** The two lists, in a sheet: nobody needs them on screen all the time. */
+async function openFollows(): Promise<void> {
+  const body = el('div', { class: 'stack' }, [spinner('Loading')])
+  modal({ title: 'People', body })
+
+  try {
+    const { following, followers } = await api.follows()
+    clear(body)
+    body.append(
+      sectionHead('You follow', plural(following.length, 'person', 'people')),
+      following.length
+        ? el('div', { class: 'stack' }, following.map(personRow))
+        : el('p', { class: 'muted', text: 'Nobody yet.' }),
+      sectionHead('Following you', plural(followers.length, 'person', 'people')),
+      followers.length
+        ? el('div', { class: 'stack' }, followers.map(personRow))
+        : el('p', { class: 'muted', text: 'Nobody yet.' }),
+    )
+  } catch (error) {
+    clear(body)
+    body.append(el('p', { class: 'error-note', text: message(error) }))
+  }
+}
+
+function personRow(user: PublicUser): HTMLElement {
+  const row = el('button', { class: 'credit-row', type: 'button' }, [
+    el('div', { class: 'credit-body' }, [
+      el('span', { class: 'credit-title', text: user.displayName?.trim() || `@${user.handle}` }),
+      el('span', { class: 'muted small', text: `@${user.handle}` }),
+    ]),
+  ])
+  row.addEventListener('click', () => openProfile(user.handle))
+  return row
+}
+
+// MARK: Import
+
+/**
+ * Bring a library in from somewhere else.
+ *
+ * Reads the file in the browser and posts its text, rather than a multipart
+ * upload: the API speaks JSON everywhere else, and a CSV is text — adding a
+ * second body format to the server for one endpoint would be the larger change.
+ *
+ * The server answers with a job rather than a result, because resolving
+ * hundreds of titles against TMDB takes minutes. This polls it.
+ */
+function importBlock(): HTMLElement {
+  const status = el('div', { class: 'stack' })
+
+  const picker = el('input', {
+    type: 'file',
+    // .txt included because browsers and mail clients rename CSVs, and the
+    // parser does not care what the extension says.
+    accept: '.csv,text/csv,text/plain',
+    class: 'input',
+  }) as HTMLInputElement
+
+  const upload = button(
+    'Import file',
+    () =>
+      void busy(upload, async () => {
+        const file = picker.files?.[0]
+        if (!file) {
+          toast('Choose a CSV file first', 'error')
+          return
+        }
+
+        try {
+          const job = await api.startImport(await file.text(), file.name)
+          await follow(job.id, status)
+          // Everything an import writes is something the cached library shows.
+          library.invalidate()
+        } catch (error) {
+          clear(status)
+          status.append(el('p', { class: 'error-note', text: message(error) }))
+        }
+      }),
+    'primary',
+  )
+
+  return el('div', { class: 'form' }, [
+    sectionHead(
+      'Import',
+      'A Letterboxd export works as is — watched.csv, diary.csv, ratings.csv or watchlist.csv.',
+    ),
+    field('CSV file', picker),
+    el('div', { class: 'row-actions' }, [upload]),
+    status,
+  ])
+}
+
+/** Polls a running import until it stops, drawing progress as it goes. */
+async function follow(jobId: string, host: HTMLElement): Promise<void> {
+  // Two seconds: fast enough that a small file feels immediate, slow enough
+  // that a twenty-minute run is not a few hundred requests.
+  const POLL_MS = 2000
+
+  for (;;) {
+    const job = await api.importJob(jobId)
+    clear(host)
+    host.append(renderJob(job))
+    if (job.status !== 'running') return
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+  }
+}
+
+function renderJob(job: ImportJob): HTMLElement {
+  if (job.status === 'failed') {
+    return el('p', {
+      class: 'error-note',
+      text: job.error ?? 'The import stopped before it finished.',
+    })
+  }
+
+  const block = el('div', { class: 'stack' })
+
+  // The bar belongs to the waiting, not to the result. Left up at 100% beside
+  // "Imported 731 entries", it invites the reader to work out whether the two
+  // numbers agree — and they measure different things, so they do not.
+  if (job.status === 'running') {
+    const done = job.total === 0 ? 0 : job.processed / job.total
+    block.append(
+      progressBar(
+        done,
+        `${job.processed}/${job.total}`,
+        `Import progress: ${job.processed} of ${plural(job.total, 'row')} processed`,
+      ),
+      el('p', { class: 'muted', text: 'Matching titles against TMDB…' }),
+    )
+    return block
+  }
+
+  block.append(
+    el('p', {
+      text: `Imported ${plural(job.imported, 'entry', 'entries')} across ${plural(job.matched, 'film')}.`,
+    }),
+  )
+
+  if (job.skipped > 0) {
+    block.append(
+      el('p', { class: 'muted small', text: `${plural(job.skipped, 'line')} had no title.` }),
+    )
+  }
+
+  // Listed, not counted. A user who has just handed over a decade of viewings
+  // deserves to know exactly which ones did not arrive.
+  if (job.unmatched.length > 0) {
+    const list = el('details', { class: 'unmatched' }, [
+      el('summary', { text: `${plural(job.unmatched.length, 'title')} not found on TMDB` }),
+      el(
+        'ul',
+        {},
+        job.unmatched.map((entry) =>
+          el('li', { text: entry.year ? `${entry.title} (${entry.year})` : entry.title }),
+        ),
+      ),
+    ])
+    block.append(list)
+  }
+
+  return block
+}
+
 // MARK: Account
+
+/**
+ * The countries offered in the region picker.
+ *
+ * Deliberately not the full ISO 3166 list. TMDB's provider coverage is thin
+ * outside these markets, and a picker with 250 entries mostly answering "no
+ * services found" would be a worse answer than a short one that works. The
+ * server accepts any valid two-letter code, so nothing here is a hard limit.
+ */
+const REGION_CODES = [
+  'AR', 'AT', 'AU', 'BE', 'BR', 'CA', 'CH', 'CL', 'CO', 'CZ', 'DE', 'DK', 'EE',
+  'ES', 'FI', 'FR', 'GB', 'GR', 'HK', 'HU', 'ID', 'IE', 'IL', 'IN', 'IT', 'JP',
+  'KR', 'LT', 'LV', 'MX', 'MY', 'NL', 'NO', 'NZ', 'PE', 'PH', 'PL', 'PT', 'RO',
+  'SE', 'SG', 'SK', 'TH', 'TR', 'TW', 'US', 'VE', 'ZA',
+]
+
+const REGIONS = REGION_CODES.map((code) => ({ value: code, label: regionName(code) })).sort(
+  (a, b) => a.label.localeCompare(b.label),
+)
 
 function renderAccount(body: HTMLElement): void {
   clear(body)
@@ -395,6 +720,9 @@ function renderAccount(body: HTMLElement): void {
 
   const displayName = input('text', { value: user.displayName ?? '', maxlength: 60 })
   const handle = input('text', { value: user.handle, maxlength: 30 })
+  const region = select(REGIONS, user.region)
+  const sharing = el('input', { type: 'checkbox' }) as HTMLInputElement
+  sharing.checked = user.activityVisibility === 'followers'
 
   const save = button('Save profile', () =>
     void busy(save, async () => {
@@ -402,8 +730,13 @@ function renderAccount(body: HTMLElement): void {
         await api.updateMe({
           displayName: displayName.value.trim(),
           handle: handle.value.trim().toLowerCase(),
+          region: region.value,
+          activityVisibility: sharing.checked ? 'followers' : 'private',
         })
         emit('profile')
+        // Availability is answered per country, so a region change invalidates
+        // every provider strip the client is holding.
+        library.invalidate(['watchlist'])
         toast('Profile saved')
       } catch (error) {
         toast(message(error), 'error')
@@ -458,11 +791,23 @@ function renderAccount(body: HTMLElement): void {
     el('div', { class: 'form' }, [
       field('Display name', displayName),
       field('Handle', handle, 'Lowercase letters, numbers and underscores. People invite you by this.'),
+      field('Country', region, 'Decides whose streaming availability the app shows you.'),
+      el('label', { class: 'checkline' }, [
+        sharing,
+        el('span', { text: 'Let people who follow me see what I watch' }),
+      ]),
+      el('p', {
+        class: 'muted small',
+        // Said plainly, because following needs no approval: switching this on
+        // means anybody who looks you up can read your diary.
+        text: 'Off by default. Anyone can follow you without asking, so this makes your viewing readable by anyone who looks up your handle.',
+      }),
       el('p', { class: 'muted', text: user.email ? `Signed in as ${user.email}` : 'Signed in' }),
       el('div', { class: 'row-actions' }, [save]),
     ]),
     sectionHead('Your data'),
     el('div', { class: 'row-actions' }, [exportButton]),
+    importBlock(),
     sectionHead('App'),
     el('p', { class: 'muted', text: `Version ${APP_VERSION} · API ${api.apiBase()}` }),
     el('div', { class: 'row-actions' }, [refreshApp, signOut]),

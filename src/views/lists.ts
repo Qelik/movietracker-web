@@ -6,12 +6,20 @@
  * courtesy, not the boundary.
  */
 import * as api from '../api.js'
-import { field, input, select, textarea } from '../components.js'
+import { field, input, sectionHead, select, textarea } from '../components.js'
 import { busy, button, clear, confirmModal, el, empty, modal, spinner, toast } from '../dom.js'
-import { plural, posterUrl, subtitleFor } from '../format.js'
+import { formatDay, plural, posterUrl, subtitleFor, today } from '../format.js'
 import { emit, on } from '../store.js'
 import { openTitle } from '../title.js'
-import type { ListItem, ListRole, ListSummary, Vote } from '../types.js'
+import type {
+  Availability,
+  Decision,
+  ListItem,
+  ListNight,
+  ListRole,
+  ListSummary,
+  Vote,
+} from '../types.js'
 
 export function mount(root: HTMLElement): () => void {
   const body = el('div')
@@ -140,7 +148,9 @@ export function openList(id: string, done: () => void): void {
       clear(body)
       body.append(
         header(list, refresh, close, done),
+        decideBlock(list),
         itemsBlock(list, items, refresh),
+        nightsBlock(list),
         membersBlock(list, refresh),
       )
     } catch (error) {
@@ -150,6 +160,168 @@ export function openList(id: string, done: () => void): void {
   }
 
   void refresh()
+}
+
+/**
+ * "So what are we watching?"
+ *
+ * The last step in a shared list, and the one nobody wants to take
+ * responsibility for. Nothing is recorded, so rolling again is free — which is
+ * how the decision actually gets made.
+ */
+function decideBlock(list: ListSummary): HTMLElement {
+  const result = el('div')
+
+  const roll = button(
+    'Pick something',
+    () =>
+      void busy(roll, async () => {
+        try {
+          const decision = await api.decideForList(list.id)
+          clear(result)
+          result.append(decisionCard(decision))
+        } catch (error) {
+          clear(result)
+          result.append(el('p', { class: 'muted', text: message(error) }))
+        }
+      }),
+    'ghost',
+  )
+
+  return el('section', { class: 'sheet-block' }, [
+    el('div', { class: 'row-actions' }, [roll]),
+    result,
+  ])
+}
+
+function decisionCard(decision: Decision): HTMLElement {
+  const poster = posterUrl(decision.movie?.posterPath ?? null, 'w185')
+  const pick = decision.pick
+
+  const card = el('button', { class: 'credit-row decision', type: 'button' }, [
+    poster
+      ? el('img', { class: 'credit-poster', src: poster, alt: '', loading: 'lazy' })
+      : el('div', { class: 'credit-poster placeholder', 'aria-hidden': 'true' }, ['🎲']),
+    el('div', { class: 'credit-body' }, [
+      el('span', { class: 'muted small', text: 'Tonight' }),
+      el('span', { class: 'credit-title', text: pick.title }),
+      el('span', {
+        class: 'muted small',
+        text: `${pick.yes} yes · ${pick.maybe} maybe · ${pick.no} no`,
+      }),
+    ]),
+  ])
+
+  card.addEventListener('click', () =>
+    openTitle({ mediaType: pick.mediaType, tmdbId: pick.tmdbId, title: pick.title }),
+  )
+
+  const block = el('div', { class: 'stack' }, [card])
+
+  // Said out loud, because a pick somebody has already objected to needs that
+  // fact attached rather than arriving as an instruction.
+  if (decision.vetoesIgnored) {
+    block.append(
+      el('p', {
+        class: 'muted small',
+        text: 'Everything on this list has a no against it, so this one was picked anyway.',
+      }),
+    )
+  }
+
+  return block
+}
+
+/**
+ * Proposed nights, kept apart from what to watch.
+ *
+ * Two arguments, and folding them together means settling both before you can
+ * settle either.
+ */
+function nightsBlock(list: ListSummary): HTMLElement {
+  const block = el('section', { class: 'sheet-block' }, [
+    sectionHead('Nights', 'When can everyone make it?'),
+  ])
+  const body = el('div', { class: 'stack' }, [spinner('Loading')])
+
+  const date = input('date', { value: today() })
+  const propose = button(
+    'Propose',
+    () =>
+      void busy(propose, async () => {
+        try {
+          paint(await api.proposeNight(list.id, date.value))
+        } catch (error) {
+          toast(message(error), 'error')
+        }
+      }),
+    'ghost small',
+  )
+
+  const paint = (nights: ListNight[]) => {
+    clear(body)
+    if (nights.length === 0) {
+      body.append(el('p', { class: 'muted', text: 'No nights proposed yet.' }))
+      return
+    }
+    body.append(...nights.map((night) => nightRow(list, night, paint)))
+  }
+
+  block.append(
+    el('div', { class: 'inline-field' }, [field('A night', date)]),
+    el('div', { class: 'row-actions' }, [propose]),
+    body,
+  )
+
+  void api
+    .nights(list.id)
+    .then(paint)
+    .catch((error: unknown) => {
+      clear(body)
+      body.append(el('p', { class: 'muted', text: message(error) }))
+    })
+
+  return block
+}
+
+function nightRow(
+  list: ListSummary,
+  night: ListNight,
+  paint: (nights: ListNight[]) => void,
+): HTMLElement {
+  const answer = (reply: Availability) => {
+    const chip = el('button', {
+      class: night.myReply === reply ? `chip vote active ${reply}` : 'chip vote',
+      type: 'button',
+      text: reply === 'yes' ? 'Free' : reply === 'maybe' ? 'Maybe' : 'Busy',
+      'aria-pressed': night.myReply === reply ? 'true' : 'false',
+    })
+    chip.addEventListener('click', () => {
+      void (async () => {
+        try {
+          paint(await api.replyToNight(list.id, night.id, reply))
+        } catch (error) {
+          toast(message(error), 'error')
+        }
+      })()
+    })
+    return chip
+  }
+
+  const who = night.proposedBy.displayName?.trim() || `@${night.proposedBy.handle}`
+
+  const row = el('div', { class: 'night-row' }, [
+    el('div', {}, [
+      el('span', { class: 'credit-title', text: formatDay(night.onDate) }),
+      el('span', {
+        class: 'muted small',
+        text: `${night.yes} free · ${night.maybe} maybe · ${night.no} busy · proposed by ${who}`,
+      }),
+    ]),
+    el('div', { class: 'chip-row' }, [answer('yes'), answer('maybe'), answer('no')]),
+  ])
+
+  return row
 }
 
 function header(
